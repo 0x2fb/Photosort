@@ -42,10 +42,18 @@ def get_filename(imagefile):
     return os.path.basename(imagefile)
 
 
-def get_hash(imagefile):
-    '''Returns the hash value of the image'''
+def get_hash_values(imagefile):
+    '''Returns the hash values of image with rotation'''
     image = Image.open(imagefile)
-    return imagehash.phash(image)
+    hash_values = []
+    hash_values.append(str(imagehash.phash(image)))
+    image = image.rotate(90, expand=True)
+    hash_values.append(str(imagehash.phash(image)))
+    image = image.rotate(90, expand=True)
+    hash_values.append(str(imagehash.phash(image)))
+    image = image.rotate(90, expand=True)
+    hash_values.append(str(imagehash.phash(image)))
+    return hash_values
 
 
 images = get_image()
@@ -55,4 +63,4 @@ for i in range(3):
     print(get_date_taken(image))
     print(get_image_size(image))
     print(get_file_size(image))
-    print(get_hash(image))
+    print(get_hash_values(image))
