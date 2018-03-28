@@ -1,14 +1,22 @@
 import os
 import exifread
 from PIL import Image
+import imagehash
 
 
 def get_image():
-    '''Generator object that yields all images [todo]
-    in a folder and its subfolders'''
-    for (path, _, files) in os.walk(os.getcwd()):
+    '''Generator object that yields all images
+    of a folder and its subfolders'''
+
+    def is_image(file):
+        '''Returns True if the file is an image'''
+        return file.lower().endswith(('.jpg', '.png', '.jpeg', '.bmp', '.gif'))
+
+    folder = os.path.dirname(os.path.abspath(__file__))
+    for (path, _, files) in os.walk(folder):
         for f in files:
-            yield f"{path}\\{f}"
+            if is_image(f):
+                yield f"{path}\\{f}"
 
 
 def get_date_taken(imagefile):
@@ -34,6 +42,12 @@ def get_filename(imagefile):
     return os.path.basename(imagefile)
 
 
+def get_hash(imagefile):
+    '''Returns the hash value of the image'''
+    image = Image.open(imagefile)
+    return imagehash.phash(image)
+
+
 images = get_image()
 for i in range(3):
     image = next(images)
@@ -41,3 +55,4 @@ for i in range(3):
     print(get_date_taken(image))
     print(get_image_size(image))
     print(get_file_size(image))
+    print(get_hash(image))
