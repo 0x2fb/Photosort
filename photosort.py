@@ -2,9 +2,15 @@ import os
 import exifread
 from PIL import Image
 import imagehash
+import time
+# import shutil
 
 
-def get_image():
+def basefolder():
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def get_image(folder=basefolder()):
     '''Generator object that yields all images
     of a folder and its subfolders'''
 
@@ -12,18 +18,22 @@ def get_image():
         '''Returns True if the file is an image'''
         return file.lower().endswith(('.jpg', '.png', '.jpeg', '.bmp', '.gif'))
 
-    folder = os.path.dirname(os.path.abspath(__file__))
     for (path, _, files) in os.walk(folder):
         for f in files:
             if is_image(f):
-                yield f"{path}\\{f}"
+                yield os.path.join(path, f)
 
 
 def get_date_taken(imagefile):
     '''Returns the date the image was taken from its EXIF data'''
     with open(imagefile, 'rb') as image:
         exiftags = exifread.process_file(image, details=False)
-    return exiftags["EXIF DateTimeOriginal"]
+    try:
+        return exiftags["EXIF DateTimeOriginal"]
+    except KeyError:
+        return time.strftime(
+            "%Y:%m:%d %H:%M:%S", time.gmtime(os.path.getmtime(imagefile))
+        )
 
 
 def get_image_size(imagefile):
@@ -56,11 +66,26 @@ def get_hash_values(imagefile):
     return hash_values
 
 
+def create_folder(time_unit, folder=basefolder()):
+    '''Creates a folder based on a unit of time'''
+    if not os.path.exists(os.path.join(folder, time_unit)):
+        os.makedirs(os.path.join(folder, time_unit))
+
+
+def move_image(imagefile, time):
+    '''Moves the image to a folder based on EXIF DateTimeOriginal'''
+    (year, month, day), (hour, minutes, seconds) = (x.split(':')
+                                                    for x in time.split())
+    create_folder(year)
+    create_folder(month, os.path.join(basefolder(), year))
+
+
 images = get_image()
-for i in range(3):
+for i in range(77):
     image = next(images)
     print(get_filename(image))
     print(get_date_taken(image))
     print(get_image_size(image))
     print(get_file_size(image))
     print(get_hash_values(image))
+    move_image(image, str(get_date_taken(image)))
