@@ -35,10 +35,10 @@ def get_date_taken(imagefile):
         )
 
 
-def get_image_size(imagefile):
+def get_img_size(imagefile):
     '''Returns a tuple (w, h) that holds the width and height of an image'''
     image = Image.open(imagefile)
-    return image.size
+    return "{} x {}".format(*sorted(list(image.size), reverse=True))
 
 
 def get_file_size(imagefile):
@@ -62,25 +62,33 @@ def get_hash_values(imagefile):
     hash_values.append(str(imagehash.phash(image)))
     image = image.rotate(90, expand=True)
     hash_values.append(str(imagehash.phash(image)))
-    return hash_values
+    return ''.join(sorted(hash_values))
 
 
 def write_to_db(imagefile, db):
     '''Inserts the image data into the database'''
-    filename = get_filename(imagefile)
-    date_taken = str(get_date_taken(imagefile))
-    width, height = (str(i) for i in get_image_size(imagefile))
-    file_size = str(get_file_size(imagefile))
-    hash0, hash90, hash180, hash270 = (str(i)
-                                       for i in get_hash_values(imagefile))
+    hashes = get_hash_values(imagefile)
+    if compare(hashes, db) < 1:
+        filename = get_filename(imagefile)
+        date_taken = str(get_date_taken(imagefile))
+        img_size = get_img_size(imagefile)
+        file_size = str(get_file_size(imagefile))
 
-    db.execute("INSERT INTO images(id, filename) VALUES(NULL, ?)",
-               (filename,))
-    db.execute("INSERT INTO image_info(image, date_taken, width, height, file_size) VALUES(NULL, ?, ?, ?, ?)",
-               (date_taken, width, height, file_size))
-    db.execute("INSERT INTO hash_values(image , hash0 , hash90 , hash180 , hash270) VALUES(NULL, ?, ?, ?, ?)",
-               (hash0, hash90, hash180, hash270))
-    db.commit()
+        db.execute("INSERT INTO images(id, filename) VALUES(NULL, ?)",
+                   (filename,))
+        db.execute("INSERT INTO image_info(image, date_taken, img_size, file_size) VALUES(NULL, ?, ?, ?)",
+                   (date_taken, img_size, file_size))
+        db.execute("INSERT INTO hash_values(image , hashes) VALUES(NULL, ?)",
+                   (hashes,))
+        db.commit()
+    else:
+        print("Duplicate Found!")
+
+
+def compare(hashes, db):
+    cursor = db.execute(
+        "SELECT count(*) FROM hash_values WHERE hashes = ?", (hashes,))
+    return cursor.fetchone()[0]
 
 
 def create_folder(time_unit, folder=basefolder):
@@ -105,16 +113,22 @@ img_db = sqlite3.connect(os.path.join(basefolder, 'img_db.sqlite'))
 img_db.execute(
     "CREATE TABLE IF NOT EXISTS images (id INTEGER PRIMARY KEY, filename TEXT)")
 img_db.execute(
-    "CREATE TABLE IF NOT EXISTS image_info (image INTEGER PRIMARY KEY, date_taken TEXT, width TEXT, height TEXT, file_size TEXT)")
+    "CREATE TABLE IF NOT EXISTS image_info (image INTEGER PRIMARY KEY, date_taken TEXT, img_size TEXT, file_size TEXT)")
 img_db.execute(
-    "CREATE TABLE IF NOT EXISTS hash_values (image INTEGER PRIMARY KEY, hash0 TEXT, hash90 TEXT, hash180 TEXT, hash270 TEXT)")
-for i in range(77):
+    "CREATE TABLE IF NOT EXISTS hash_values (image INTEGER PRIMARY KEY, hashes TEXT)")
+img_db.execute(
+    "CREATE VIEW IF NOT EXISTS image_list AS SELECT images.id, images.filename, image_info.date_taken, image_info.img_size, "
+    "image_info.file_size, hash_values.hashes FROM images INNER JOIN "
+    "image_info ON images.id = image_info.image INNER JOIN hash_values ON images.id = hash_values.image"
+)
+for i in range(78):
     image = next(images)
     print(get_filename(image))
     write_to_db(image, img_db)
     print(get_date_taken(image))
-    print(get_image_size(image))
+    print(get_img_size(image))
     print(get_file_size(image))
+    print(compare(get_hash_values(image), img_db))
     # print(get_hash_values(image))
     # move_image(image, str(get_date_taken(image)))
     # print(image)
