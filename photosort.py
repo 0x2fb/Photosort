@@ -8,23 +8,44 @@ import sqlite3
 
 basefolder = os.path.dirname(os.path.abspath(__file__))
 
+# ========================= DATABASE FUNCTIONS =========================
 
-def get_image(folder=basefolder):
-    '''Generator object that yields all images
-    of a folder and its subfolders'''
 
-    def is_image(file):
-        '''Returns True if the file is an image'''
-        return file.lower().endswith(('.jpg', '.png', '.jpeg', '.bmp', '.gif'))
+def create_tables(db):
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS images (id INTEGER PRIMARY KEY, filename TEXT)")
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS image_info (image INTEGER PRIMARY KEY, date_taken TEXT, img_size TEXT, file_size TEXT)")
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS hash_values (image INTEGER PRIMARY KEY, hashes TEXT)")
+    db.execute(
+        "CREATE VIEW IF NOT EXISTS image_list AS SELECT images.id, images.filename, image_info.date_taken, image_info.img_size, "
+        "image_info.file_size, hash_values.hashes FROM images INNER JOIN "
+        "image_info ON images.id = image_info.image INNER JOIN hash_values ON images.id = hash_values.image")
 
-    for (path, _, files) in os.walk(folder):
-        for f in files:
-            if is_image(f):
-                yield os.path.join(path, f)
+
+def write_to_db(hashes, filename, date_taken, img_size, file_size, db):
+    '''Inserts the image data into the database'''
+    db.execute("INSERT INTO images(id, filename) VALUES(NULL, ?)",
+               (filename,))
+    db.execute("INSERT INTO image_info(image, date_taken, img_size, file_size) VALUES(NULL, ?, ?, ?)",
+               (date_taken, img_size, file_size))
+    db.execute("INSERT INTO hash_values(image , hashes) VALUES(NULL, ?)",
+               (hashes,))
+    db.commit()
+
+
+def compare(hashes, db):
+    cursor = db.execute(
+        "SELECT count(*) FROM hash_values WHERE hashes = ?", (hashes,))
+    return cursor.fetchone()[0]
+
+# ========================= INFORMATION RETRIEVAL FUNCTIONS =========================
 
 
 def get_date_taken(imagefile):
-    '''Returns the date the image was taken from its EXIF data'''
+    '''Returns the date the image was taken from its EXIF data.
+    Returns last modified date if there is no EXIF data.'''
     with open(imagefile, 'rb') as image:
         exiftags = exifread.process_file(image, details=False)
     try:
@@ -35,9 +56,8 @@ def get_date_taken(imagefile):
         )
 
 
-def get_img_size(imagefile):
+def get_img_size(image):
     '''Returns a tuple (w, h) that holds the width and height of an image'''
-    image = Image.open(imagefile)
     return "{} x {}".format(*sorted(list(image.size), reverse=True))
 
 
@@ -51,9 +71,8 @@ def get_filename(imagefile):
     return os.path.basename(imagefile)
 
 
-def get_hash_values(imagefile):
+def get_hash_values(image):
     '''Returns the hash values of the image with rotation'''
-    image = Image.open(imagefile)
     hash_values = []
     hash_values.append(str(imagehash.phash(image)))
     image = image.rotate(90, expand=True)
@@ -64,31 +83,7 @@ def get_hash_values(imagefile):
     hash_values.append(str(imagehash.phash(image)))
     return ''.join(sorted(hash_values))
 
-
-def write_to_db(imagefile, db):
-    '''Inserts the image data into the database'''
-    hashes = get_hash_values(imagefile)
-    if compare(hashes, db) < 1:
-        filename = get_filename(imagefile)
-        date_taken = str(get_date_taken(imagefile))
-        img_size = get_img_size(imagefile)
-        file_size = str(get_file_size(imagefile))
-
-        db.execute("INSERT INTO images(id, filename) VALUES(NULL, ?)",
-                   (filename,))
-        db.execute("INSERT INTO image_info(image, date_taken, img_size, file_size) VALUES(NULL, ?, ?, ?)",
-                   (date_taken, img_size, file_size))
-        db.execute("INSERT INTO hash_values(image , hashes) VALUES(NULL, ?)",
-                   (hashes,))
-        db.commit()
-    else:
-        print("Duplicate Found!")
-
-
-def compare(hashes, db):
-    cursor = db.execute(
-        "SELECT count(*) FROM hash_values WHERE hashes = ?", (hashes,))
-    return cursor.fetchone()[0]
+# ========================= FILE MOVE FUNCTIONS =========================
 
 
 def create_folder(time_unit, folder=basefolder):
@@ -107,30 +102,59 @@ def move_image(imagefile, time):
     new_filename = f'{day}.{month}.{year} {hour}-{minutes}-{seconds}.{os.path.splitext(imagefile)[1]}'
     shutil.move(imagefile, os.path.join(basefolder, year, month, new_filename))
 
+# ========================= FILE FUNCTIONS =========================
 
-images = get_image()
-img_db = sqlite3.connect(os.path.join(basefolder, 'img_db.sqlite'))
-img_db.execute(
-    "CREATE TABLE IF NOT EXISTS images (id INTEGER PRIMARY KEY, filename TEXT)")
-img_db.execute(
-    "CREATE TABLE IF NOT EXISTS image_info (image INTEGER PRIMARY KEY, date_taken TEXT, img_size TEXT, file_size TEXT)")
-img_db.execute(
-    "CREATE TABLE IF NOT EXISTS hash_values (image INTEGER PRIMARY KEY, hashes TEXT)")
-img_db.execute(
-    "CREATE VIEW IF NOT EXISTS image_list AS SELECT images.id, images.filename, image_info.date_taken, image_info.img_size, "
-    "image_info.file_size, hash_values.hashes FROM images INNER JOIN "
-    "image_info ON images.id = image_info.image INNER JOIN hash_values ON images.id = hash_values.image"
-)
-for i in range(78):
-    image = next(images)
-    print(get_filename(image))
-    write_to_db(image, img_db)
-    print(get_date_taken(image))
-    print(get_img_size(image))
-    print(get_file_size(image))
-    print(compare(get_hash_values(image), img_db))
-    # print(get_hash_values(image))
-    # move_image(image, str(get_date_taken(image)))
-    # print(image)
-    # print(os.path.splitext(image))
-img_db.close()
+
+def get_image(folder=basefolder):
+    '''Generator object that yields all images
+    of a folder and its subfolders'''
+
+    def is_image(file):
+        '''Returns True if the file is an image'''
+        return file.lower().endswith(('.jpg', '.png', '.jpeg', '.bmp', '.gif'))
+
+    for (path, _, files) in os.walk(folder):
+        for f in files:
+            if is_image(f):
+                yield os.path.join(path, f)
+
+
+def check_hash(image, db):
+    hashes = get_hash_values(image)
+    if compare(hashes, db) < 1:
+        return hashes
+    else:
+        return None
+
+
+def process_image(imagefile, db):
+    with Image.open(imagefile) as image:
+        unique_hash = check_hash(image, db)
+        if unique_hash:
+            img_size = get_img_size(image)
+        else:
+            print(f'{imagefile} is a duplicate.')
+    if unique_hash:
+        filename = get_filename(imagefile)
+        date_taken = str(get_date_taken(imagefile))
+        file_size = str(get_file_size(imagefile))
+        write_to_db(unique_hash, filename, date_taken, img_size, file_size, db)
+        move_image(imagefile, date_taken)
+
+
+if __name__ == '__main__':
+    images = get_image()
+    with sqlite3.connect(os.path.join(basefolder, 'img_db.sqlite')) as img_db:
+        create_tables(img_db)
+        for image in images:
+            print(get_filename(image))
+            process_image(image, img_db)
+            # write_to_db(image, img_db)
+            # print(get_date_taken(image))
+            # print(get_img_size(image))
+            # print(get_file_size(image))
+            # print(compare(get_hash_values(image), img_db))
+            # print(get_hash_values(image))
+            # move_image(image, str(get_date_taken(image)))
+            # print(image)
+            # print(os.path.splitext(image))
