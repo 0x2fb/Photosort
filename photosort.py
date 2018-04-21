@@ -92,15 +92,26 @@ def create_folder(time_unit, folder=basefolder):
         os.makedirs(os.path.join(folder, time_unit))
 
 
-def move_image(imagefile, time):
+def move_image(imagefile, img_time):
     '''Moves and renames the image to a folder
     based on EXIF DateTimeOriginal'''
-    (year, month, day), (hour, minutes, seconds) = (x.split(':')
-                                                    for x in time.split())
-    create_folder(year)
-    create_folder(month, os.path.join(basefolder, year))
-    new_filename = f'{day}.{month}.{year} {hour}-{minutes}-{seconds}.{os.path.splitext(imagefile)[1]}'
-    shutil.move(imagefile, os.path.join(basefolder, year, month, new_filename))
+    try:
+        (year, month, day), (hour, minutes, seconds) = (x.split(':')
+                                                        for x in img_time.split())
+    except ValueError:
+        print(f'ERROR: {imagefile} has wrong date format.')
+    else:
+        create_folder(year)
+        create_folder(month, os.path.join(basefolder, year))
+        new_filename = f'{day}.{month}.{year} {hour}-{minutes}-{seconds}{os.path.splitext(imagefile)[1]}'
+        new_folder = os.path.join(basefolder, year, month, new_filename)
+        for _ in range(5):
+            try:
+                shutil.move(imagefile, new_folder)
+            except WindowsError:
+                time.sleep(0.1)
+            else:
+                break
 
 # ========================= FILE FUNCTIONS =========================
 
@@ -128,18 +139,22 @@ def check_hash(image, db):
 
 
 def process_image(imagefile, db):
-    with Image.open(imagefile) as image:
-        unique_hash = check_hash(image, db)
+    try:
+        with Image.open(imagefile) as image:
+            unique_hash = check_hash(image, db)
+            if unique_hash:
+                img_size = get_img_size(image)
+            else:
+                print(f'{imagefile} is a duplicate.')
         if unique_hash:
-            img_size = get_img_size(image)
-        else:
-            print(f'{imagefile} is a duplicate.')
-    if unique_hash:
-        filename = get_filename(imagefile)
-        date_taken = str(get_date_taken(imagefile))
-        file_size = str(get_file_size(imagefile))
-        write_to_db(unique_hash, filename, date_taken, img_size, file_size, db)
-        move_image(imagefile, date_taken)
+            filename = get_filename(imagefile)
+            date_taken = str(get_date_taken(imagefile))
+            file_size = str(get_file_size(imagefile))
+            write_to_db(unique_hash, filename, date_taken,
+                        img_size, file_size, db)
+            move_image(imagefile, date_taken)
+    except OSError:
+        print(f"Unable to open {imagefile}.")
 
 
 if __name__ == '__main__':
