@@ -5,6 +5,8 @@ import imagehash
 import time
 import shutil
 import sqlite3
+import re
+import piexif
 
 basefolder = os.path.dirname(os.path.abspath(__file__))
 
@@ -40,7 +42,7 @@ def compare(hashes, db):
         "SELECT count(*) FROM hash_values WHERE hashes = ?", (hashes,))
     return cursor.fetchone()[0]
 
-# ========================= INFORMATION RETRIEVAL FUNCTIONS =========================
+# ========================= EXIF FUNCTIONS =========================
 
 
 def get_date_taken(imagefile):
@@ -51,9 +53,53 @@ def get_date_taken(imagefile):
     try:
         return exiftags["EXIF DateTimeOriginal"]
     except KeyError:
-        return time.strftime(
-            "%Y:%m:%d %H:%M:%S", time.gmtime(os.path.getmtime(imagefile))
-        )
+        img_time = contains_date(imagefile)
+        if img_time:
+            write_exif(imagefile, img_time)
+            return img_time
+        else:
+            img_time = get_changedate(imagefile)
+            write_exif(imagefile, img_time)
+            return img_time
+
+
+def get_changedate(imagefile):
+    return time.strftime("%Y:%m:%d %H:%M:%S", time.gmtime(os.path.getmtime(imagefile)))
+
+
+def contains_date(imagefile):
+    '''Regex Check for Dates and times starting or ending with year 20xx'''
+    imagefile = get_filename(imagefile)
+    pattern1 = re.compile(
+        r'([0-3]\d)[\.\-_]?([01]\d)[\.\-_]?(20\d\d)[\-_ ]([0-2]\d)[\.\-_]?([0-5]\d)[\.\-_]?([0-5]\d)')
+    match = pattern1.search(imagefile)
+    if match:
+        day, month, year, hour, minute, second = match.groups()
+        return f'{year}:{month}:{day} {hour}:{minute}:{second}'
+    else:
+        pattern2 = re.compile(
+            r'(20\d\d)[\.\-_]?([01]\d)[\.\-_]?([0-3]\d)[\-_ ]([0-2]\d)[\.\-_]?([0-5]\d)[\.\-_]?([0-5]\d)')
+        match = pattern2.search(imagefile)
+        if match:
+            year, month, day, hour, minute, second = match.groups()
+            return f'{year}:{month}:{day} {hour}:{minute}:{second}'
+
+
+def write_exif(imagefile, img_time):
+    if imagefile.lower().endswith(('.jpg', '.jpeg')):
+        exif_dict = piexif.load(imagefile)
+        exif_dict['Exif'][piexif.ExifIFD.DateTimeOriginal] = img_time
+        exif_dict['Exif'][piexif.ExifIFD.DateTimeDigitized] = img_time
+        exif_dict['0th'][piexif.ImageIFD.DateTime] = img_time
+        try:
+            exif_bytes = piexif.dump(exif_dict)
+        except ValueError:
+            print("Could not write EXIF data")
+        else:
+            im = Image.open(imagefile)
+            im.save(imagefile, exif=exif_bytes)
+
+# ========================= INFORMATION RETRIEVAL FUNCTIONS =========================
 
 
 def get_img_size(image):
